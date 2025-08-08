@@ -34,5 +34,12 @@
 # PDF
 *.pdf 
 
+# Images
+.png
+.jpg 
+
+# ROOT
+.root 
+
 # Figures directory
 figures/ 
