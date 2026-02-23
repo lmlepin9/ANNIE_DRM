@@ -1,0 +1,13 @@
+MC_config: tilted_wvfmsim
+
+calib_samples: 
+  - sample_name: throughgoing_muons
+    data_sample: /exp/annie/app/users/lmoralep/clean_repo/ANNIE_DRM/samples/through_going_muon_data.root
+    data_tree: MuonData
+    mc_sample: /exp/annie/app/users/lmoralep/ANNIE_EScale/samples/throughgoing_muons_v1.root
+    mc_tree: Muons 
+    qe_low: 1000.
+    qe_up: 4500.
+    E_low: 100.
+    E_up: 500. 
+

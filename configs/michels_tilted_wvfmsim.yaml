@@ -1,0 +1,11 @@
+MC_config: tilted_wvfmsim
+calib_samples: 
+  - sample_name: michel_electrons
+    data_sample: /exp/annie/app/users/lmoralep/clean_repo/ANNIE_DRM/samples/michel_electron_data.root
+    data_tree: MichelData
+    mc_sample: /exp/annie/app/users/lmoralep/clean_repo/ANNIE_DRM/samples/Michels_v1.root
+    mc_tree: Michels
+    qe_low: 50.
+    qe_up: 500.
+    E_low: 10
+    E_up: 80

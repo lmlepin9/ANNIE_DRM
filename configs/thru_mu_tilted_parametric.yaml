@@ -1,0 +1,12 @@
+MC_config: tilted_parametric
+
+calib_samples: 
+  - sample_name: throughgoing_muons
+    data_sample: /exp/annie/app/users/lmoralep/clean_repo/ANNIE_DRM/samples/through_going_muon_data.root
+    data_tree: MuonData
+    mc_sample: /exp/annie/app/users/lmoralep/clean_repo/ANNIE_DRM/samples/thrugoing_muons_MC_tilted.root
+    mc_tree: Muons 
+    qe_low: 1000.
+    qe_up: 4500.
+    E_low: 100
+    E_up: 500
