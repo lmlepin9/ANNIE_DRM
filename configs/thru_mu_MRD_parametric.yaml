@@ -1,0 +1,10 @@
+MC_config: MRD_parametric
+
+calib_samples: 
+  - sample_name: throughgoing_muons
+    data_sample: /exp/annie/app/users/lmoralep/clean_repo/ANNIE_DRM/samples/throughgoing_muons_data.root
+    data_tree: Muons
+    mc_sample: /exp/annie/app/users/lmoralep/clean_repo/ANNIE_DRM/samples/thrugoing_muons_MC_tilted_MRD_only.root
+    mc_tree: Muons 
+    E_low: 300
+    E_up: 1000.

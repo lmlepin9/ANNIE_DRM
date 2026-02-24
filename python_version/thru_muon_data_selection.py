@@ -29,58 +29,141 @@ We go with the following approach:
 
 '''
 
-TEST_RUN = False
+TEST_RUN = True
 TAG="Data"
 directory = "/pnfs/annie/persistent/processed/BeamClusterTrees/"
 
 
-def array_to_root_branch(
-    array,
+import numpy as np
+import uproot
+
+
+def arrays_to_root_tree(
+    arrays,
     root_filename,
     tree_name,
-    branch_name,
+    branch_names,
     mode="recreate",
+    allow_overwrite_tree=False,
 ):
     """
-    Store a 1D NumPy array as a TBranch in a TTree (not RNTuple)
+    Store multiple 1D NumPy arrays as branches in a single TTree (not RNTuple)
     using uproot >= 5.7 (explicit mktree).
 
     Parameters
     ----------
-    array : np.ndarray
-        1D NumPy array (length = number of entries)
+    arrays : Sequence[np.ndarray]
+        List/tuple of 1D NumPy arrays. All arrays must have the same length
+        (number of entries).
     root_filename : str
-        Name of the ROOT file
+        Name of the ROOT file.
     tree_name : str
-        Name of the TTree
-    branch_name : str
-        Name of the TBranch
+        Name of the TTree.
+    branch_names : Sequence[str]
+        List/tuple of branch names, same length as `arrays`.
     mode : str
-        "recreate" (default) or "update"
+        "recreate" (default) or "update".
+        - "recreate": overwrite file
+        - "update": open existing file and update/create tree
+    allow_overwrite_tree : bool
+        If True and mode="update", will delete and recreate `tree_name` if it
+        exists but is incompatible (missing branches / dtype mismatches).
+        If False, will raise on incompatibilities.
+
+    Notes
+    -----
+    - This writes fixed-length scalar branches (one value per entry).
+    - For jagged arrays (variable-length per entry), you'd want awkward arrays
+      and a different branch type.
     """
 
-    array = np.asarray(array)
+    if len(arrays) != len(branch_names):
+        raise ValueError(
+            f"`arrays` and `branch_names` must have the same length "
+            f"({len(arrays)} vs {len(branch_names)})."
+        )
 
-    if array.ndim != 1:
-        raise ValueError("Only 1D arrays are supported")
+    # Convert & validate
+    arrays_np = []
+    n_entries = None
+    for i, a in enumerate(arrays):
+        a = np.asarray(a)
+        if a.ndim != 1:
+            raise ValueError(
+                f"Only 1D arrays are supported. "
+                f"arrays[{i}] has ndim={a.ndim}."
+            )
+        if n_entries is None:
+            n_entries = a.shape[0]
+        elif a.shape[0] != n_entries:
+            raise ValueError(
+                f"All arrays must have the same length. "
+                f"arrays[0] has {n_entries}, arrays[{i}] has {a.shape[0]}."
+            )
+        arrays_np.append(a)
+
+    # Tree schema (branch: dtype)
+    schema = {bn: arr.dtype for bn, arr in zip(branch_names, arrays_np)}
 
     file_opener = uproot.recreate if mode == "recreate" else uproot.update
 
     with file_opener(root_filename) as f:
 
-        # If the tree does not exist yet, create it explicitly
         if tree_name not in f:
-            f.mktree(
-                tree_name,
-                {branch_name: array.dtype}
-            )
+            # Create new tree with all branches
+            f.mktree(tree_name, schema)
+            tree = f[tree_name]
+            tree.extend({bn: arr for bn, arr in zip(branch_names, arrays_np)})
+            return
 
+        # Tree exists
         tree = f[tree_name]
 
-        # Extend (fill) the branch
-        tree.extend(
-            {branch_name: array}
-        )
+        # Check compatibility
+        existing = tree.keys()  # branch names in file (strings)
+        missing = [bn for bn in branch_names if bn not in existing]
+
+        # dtype check: uproot returns a NumPy dtype for scalar branches
+        dtype_mismatch = []
+        for bn, arr in zip(branch_names, arrays_np):
+            if bn in existing:
+                try:
+                    file_dtype = tree[bn].dtype
+                    if np.dtype(file_dtype) != np.dtype(arr.dtype):
+                        dtype_mismatch.append((bn, np.dtype(file_dtype), np.dtype(arr.dtype)))
+                except Exception:
+                    # If dtype can't be determined cleanly, treat as mismatch
+                    dtype_mismatch.append((bn, None, np.dtype(arr.dtype)))
+
+        if missing or dtype_mismatch:
+            if mode != "update":
+                raise ValueError(
+                    f"Tree '{tree_name}' exists but is incompatible. "
+                    f"Missing={missing}, dtype_mismatch={dtype_mismatch}."
+                )
+
+            if not allow_overwrite_tree:
+                msg = [f"Tree '{tree_name}' exists but is incompatible:"]
+                if missing:
+                    msg.append(f"  - Missing branches: {missing}")
+                if dtype_mismatch:
+                    msg.append(
+                        "  - Dtype mismatches: "
+                        + ", ".join([f"{bn} ({fd} -> {ad})" for bn, fd, ad in dtype_mismatch])
+                    )
+                msg.append(
+                    "Set allow_overwrite_tree=True to delete+recreate the tree, "
+                    "or ensure the existing tree schema matches."
+                )
+                raise ValueError("\n".join(msg))
+
+            # Delete and recreate tree with desired schema
+            del f[tree_name]
+            f.mktree(tree_name, schema)
+            tree = f[tree_name]
+
+        # Fill/extend
+        tree.extend({bn: arr for bn, arr in zip(branch_names, arrays_np)})
 
 
 def filter_hits_charge_and_z(charges, zcoords, lo=0.0, hi=350.0):
@@ -256,7 +339,7 @@ print(f"Fraction of thru-mus {(sel_events/total_events):.2f}")
 
 
 
-#-------------- Make figures ----------------------------------------- 
+#-------------- Make a diagnostic figure ----------------------------------------- 
 fig = plt.figure(dpi=200)
 plt.hist(thru_mu_cluster_pe,bins=40,color='red',histtype='step')
 plt.xlabel("cluster charge [p.e]")
@@ -264,12 +347,11 @@ plt.ylabel("Number of entries")
 plt.savefig(f"../figures/throughgoing_muon_data_LM_selection.png",bbox_inches='tight')
 
 
-dirt_df = pd.DataFrame(thru_mu_cluster_pe,columns=["cluster_charge"])
-dirt_df.to_csv(f"../samples/data_throughgoing_muon.csv")
-array_to_root_branch(thru_mu_cluster_pe,f"../samples/throughgoing_muons_data.root","Muons","cluster_pe")
-array_to_root_branch(thru_mu_mrd_angle,f"../samples/throughgoing_muons_data.root","Muons","MRDTrackAngle")
-array_to_root_branch(thru_mu_mrd_tlength,f"../samples/throughgoing_muons_data.root","Muons","MRDTrackLength")
-array_to_root_branch(thru_mu_mrd_eloss,f"../samples/throughgoing_muons_data.root","Muons","MRDTrackELoss")
-array_to_root_branch(thru_mu_mrd_thru,f"../samples/throughgoing_muons_data.root","Muons","MRDThru")
-array_to_root_branch(thru_mu_mrd_stop,f"../samples/throughgoing_muons_data.root","Muons","MRDStop")
-array_to_root_branch(thru_mu_mrd_side,f"../samples/throughgoing_muons_data.root","Muons","MRDSide")
+arrays_to_root_tree(
+    arrays=[thru_mu_cluster_pe,thru_mu_mrd_angle,thru_mu_mrd_tlength,
+    thru_mu_mrd_eloss,thru_mu_mrd_thru,thru_mu_mrd_stop,thru_mu_mrd_side],
+    branch_names=["cluster_pe", "mrd_track_angle", "mrd_track_length","mrd_track_Eloss","mrd_thru","mrd_stop","mrd_side"],
+    root_filename=f"../samples/throughgoing_muons_data.root",
+    tree_name="Muons",
+    mode="recreate",
+)
